@@ -1,0 +1,15 @@
+# Third-party binaries are never committed here. scrcpy and adb are separate
+# projects with their own licences; this repo drives them, it does not ship them.
+scrcpy.exe
+adb.exe
+scrcpy-server
+*.dll
+platform-tools/
+
+# Local notes and scratch
+_local/
+*.log
+
+# Windows
+Thumbs.db
+desktop.ini
