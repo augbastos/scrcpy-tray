@@ -246,7 +246,20 @@ function Format-DeviceLabel {
 # CreateNoWindow = true means no console is ever allocated. scrcpy's own SDL window is a
 # separate top-level window and still appears normally.
 function Start-Scrcpy {
-  param([string[]]$ScrcpyArgs)
+  param([string[]]$ScrcpyArgs, [string]$LogFile)
+  # Suppressing the console also throws away everything scrcpy prints - the device it
+  # picked, the renderer, the texture size. That output is genuinely useful, so when a
+  # log file is asked for we capture both streams into it and the bar can show them on
+  # demand. Start-Process pumps the redirected streams itself; doing it by hand from
+  # inside a WinForms message loop is how you deadlock a child process.
+  if ($LogFile) {
+    try {
+      return Start-Process -FilePath $SCRCPY -ArgumentList $ScrcpyArgs `
+               -WorkingDirectory $TOOL -WindowStyle Hidden -PassThru `
+               -RedirectStandardOutput $LogFile -RedirectStandardError "$LogFile.err" `
+               -ErrorAction Stop
+    } catch { }   # fall through to the plain launch
+  }
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName         = $SCRCPY
   $psi.Arguments        = ($ScrcpyArgs -join ' ')
@@ -256,13 +269,38 @@ function Start-Scrcpy {
   return [System.Diagnostics.Process]::Start($psi)
 }
 
+# The control bar rides on top of the mirror window: Screenshot | Record | Info | Quit.
+# It is a separate process on purpose - if it ever wedges, the mirror is untouched, and
+# it exits by itself once the mirror window is gone. Windows PowerShell 5.1 again, for
+# the same STA/clipboard reason as the tray.
+function Start-Bar {
+  param([string]$Serial, [string]$LogFile)
+  $barScript = Join-Path $PSScriptRoot 'scrcpy-bar.ps1'
+  if (-not (Test-Path -LiteralPath $barScript)) { return }   # bar is optional
+  try {
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', "`"$barScript`"",
+           '-WindowTitle', 'Phone')
+    if ($Serial)  { $a += @('-Serial', $Serial) }
+    if ($LogFile) { $a += @('-LogFile', "`"$LogFile`"") }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName        = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $psi.Arguments       = ($a -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow  = $true
+    $null = [System.Diagnostics.Process]::Start($psi)
+  } catch { }   # the mirror still works without the bar
+}
+
 function Start-Mirror {
   param([string]$Serial)
   $sargs = @('--stay-awake', '--window-title', '"Phone"')
   if ($Serial) { $sargs = @('-s', $Serial) + $sargs }
+  $log = Join-Path $env:TEMP ('scrcpy-tray-{0}.log' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
   try {
-    $p = Start-Scrcpy $sargs
-    return ($null -ne $p)
+    $p = Start-Scrcpy $sargs $log
+    if ($null -eq $p) { return $false }
+    Start-Bar $Serial $log
+    return $true
   } catch { return $false }
 }
 
