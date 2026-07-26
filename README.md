@@ -38,9 +38,16 @@ person who actually maintains scrcpy.
 | **Appears on plug** | Reacts to `WM_DEVICECHANGE`, so it shows up as the device enumerates |
 | **Left-click** | Mirror the screen via scrcpy |
 | **Screenshot now** | Full-resolution PNG off the device → saved *and* on the clipboard |
-| **Record screen** | `scrcpy --record` into your Pictures folder |
+| **Record screen** | A toggle: the same menu entry starts it and stops it, showing elapsed seconds while running |
+| **Show scrcpy log** | The output scrcpy would have printed to a console — device picked, renderer, texture size — plus a prompt in the scrcpy folder |
 | **Explains problems** | `unauthorized`, `offline`, `authorizing` and "adb didn't answer" each get their own message instead of silently looking like "no phone" |
 | **One instance** | Named mutex, so the startup shortcut plus a manual launch can't give you two icons |
+
+Stopping a recording sends `WM_CLOSE`, the same thing clicking the window's X does, and
+only force-kills after that is ignored for 8 seconds. This matters more than it sounds:
+scrcpy writes the MP4 `moov` atom while shutting down, so a killed recording produces a
+file no player will open. If it ever does have to force-kill, it says the file may not
+play rather than claiming success.
 
 Screenshots and recordings go to `<Pictures>\Phone\`, resolved through the real shell
 folder — so if your Pictures is OneDrive-redirected, they land where you actually look
@@ -115,7 +122,12 @@ folder as intended; the clipboard write succeeded **and reading the clipboard ba
 returned the image at 1080×2340**, which is the check that makes the "copied" balloon
 truthful rather than hopeful.
 
-**Still not verified:** recording, multi-device selection, unplugging mid-session, and the
+Recording was verified on the same phone: `WM_CLOSE` alone exits scrcpy 4.1 with code 0,
+and the resulting MP4 contains its `moov` atom, so it opens. The corrupt-file case was
+verified too, by deliberately killing a recording instead — no `moov`, unplayable. That
+is why the graceful path exists.
+
+**Still not verified:** multi-device selection, unplugging mid-session, and the
 `unauthorized` / `authorizing` / `no permissions` states — those are written and reviewed,
 and the state machine is exercised, but they have not been reproduced on real hardware.
 
@@ -128,7 +140,13 @@ Bug reports with your Windows version, scrcpy version and phone model are welcom
   device takes up to 15 seconds to appear.
 - Wireless (`adb connect`) targets stay listed as `offline` until `adb disconnect`. They
   are shown with that state rather than hidden, but they cannot be mirrored while offline.
-- Recording stops when you close the scrcpy window; there is no stop button in the menu.
+- The controls live in the tray menu, not on the mirror window. A floating toolbar was
+  built and removed: above the window it covered scrcpy's own title bar, minimise and
+  close included; below the title bar — where a toolbar belongs — it covered the top of
+  the picture, because that space is scrcpy's client area. Disabling the aspect-ratio
+  lock to make room did not help either; measured by sampling pixels, scrcpy stretches
+  to fill rather than letterboxing, so there is no band to sit in. A window you do not
+  own has no room in it for your controls.
 
 ## Prior art
 
