@@ -237,26 +237,117 @@ function Format-DeviceLabel {
 }
 
 # ─── actions ─────────────────────────────────────────────────────────────────
+# scrcpy.exe is built as a CONSOLE subsystem binary (PE Subsystem = 3), so launching it
+# normally allocates a black console window that sits next to the mirror window for the
+# whole session. That is why the project ships scrcpy-noconsole.vbs, which wraps it in
+# `WScript.Shell.Run(..., 0, false)`.
+#
+# We get the same result without shelling out to a .vbs: UseShellExecute = false plus
+# CreateNoWindow = true means no console is ever allocated. scrcpy's own SDL window is a
+# separate top-level window and still appears normally.
+function Start-Scrcpy {
+  param([string[]]$ScrcpyArgs)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName         = $SCRCPY
+  $psi.Arguments        = ($ScrcpyArgs -join ' ')
+  $psi.WorkingDirectory = $TOOL          # so it finds scrcpy-server beside the exe
+  $psi.UseShellExecute  = $false
+  $psi.CreateNoWindow   = $true          # <- kills the stray console window
+  return [System.Diagnostics.Process]::Start($psi)
+}
+
 function Start-Mirror {
   param([string]$Serial)
   $sargs = @('--stay-awake', '--window-title', '"Phone"')
   if ($Serial) { $sargs = @('-s', $Serial) + $sargs }
   try {
-    Start-Process -FilePath $SCRCPY -ArgumentList $sargs -WorkingDirectory $TOOL -WindowStyle Normal -ErrorAction Stop
-    return $true
+    $p = Start-Scrcpy $sargs
+    return ($null -ne $p)
   } catch { return $false }
+}
+
+# ─── recording ────────────────────────────────────────────────────────────────
+# Recording is a toggle, and stopping it has to be GRACEFUL. scrcpy finalises the
+# container (writes the moov atom) while shutting down; killing the process instead
+# leaves an .mp4 that most players refuse to open. So: CloseMainWindow() sends WM_CLOSE
+# the same way clicking the X does, and force-killing is only a last resort after the
+# process ignored the polite request. That trade is the whole reason this is not a
+# one-liner.
+$script:rec = $null   # @{ Process; File; Serial; StartedAt }
+
+function Test-Recording {
+  if (-not $script:rec) { return $false }
+  try {
+    if ($script:rec.Process.HasExited) { $script:rec = $null; return $false }
+    return $true
+  } catch { $script:rec = $null; return $false }
 }
 
 function Start-Record {
   param([string]$Serial)
+  if (Test-Recording) { return $null }
   if (-not (Ensure-ShotDir)) { return $null }
   $file = Join-Path $SHOTDIR ('phone-' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + '.mp4')
-  $sargs = @('--record', "`"$file`"", '--stay-awake')
+  $sargs = @('--record', "`"$file`"", '--stay-awake', '--window-title', '"Phone - recording"')
   if ($Serial) { $sargs = @('-s', $Serial) + $sargs }
   try {
-    Start-Process -FilePath $SCRCPY -ArgumentList $sargs -WorkingDirectory $TOOL -WindowStyle Normal -ErrorAction Stop
+    $proc = Start-Scrcpy $sargs
+    if (-not $proc) { return $null }
+    $script:rec = @{ Process = $proc; File = $file; Serial = $Serial; StartedAt = Get-Date }
     return $file
   } catch { return $null }
+}
+
+# Returns a status object so the caller can tell the truth about what happened,
+# rather than assuming the file is fine because the click worked.
+function Stop-Record {
+  $r = [pscustomobject]@{ File = $null; Stopped = $false; Forced = $false; SizeKB = 0; Seconds = 0; Error = $null }
+  if (-not (Test-Recording)) { $r.Error = 'not recording'; return $r }
+
+  $proc = $script:rec.Process
+  $r.File    = $script:rec.File
+  $r.Seconds = [math]::Round(((Get-Date) - $script:rec.StartedAt).TotalSeconds)
+
+  try {
+    # WM_CLOSE - identical to the user clicking the window's X, so scrcpy finalises
+    # the container on its way out.
+    $null = $proc.CloseMainWindow()
+    if (-not $proc.WaitForExit(8000)) {
+      # It ignored the close. Force it and say so: the file may be unplayable.
+      try { $proc.Kill(); $null = $proc.WaitForExit(3000) } catch { }
+      $r.Forced = $true
+    }
+    $r.Stopped = $true
+  } catch { $r.Error = $_.Exception.Message }
+
+  $script:rec = $null
+
+  # scrcpy flushes on exit; give the filesystem a beat before measuring.
+  Start-Sleep -Milliseconds 400
+  if ($r.File -and (Test-Path -LiteralPath $r.File)) {
+    $r.SizeKB = [math]::Round((Get-Item -LiteralPath $r.File).Length / 1KB)
+    if ($r.SizeKB -eq 0) { $r.Error = 'the recording file is empty' }
+  } else {
+    $r.Error = 'the recording file was not written'
+  }
+  return $r
+}
+
+function Announce-Record {
+  param($Result)
+  if (-not $Result.Stopped) {
+    $tray.ShowBalloonTip(3000, 'Recording', $Result.Error, 'Warning'); return
+  }
+  if ($Result.Error) {
+    $tray.ShowBalloonTip(4000, 'Recording problem', $Result.Error, 'Error'); return
+  }
+  $name = Split-Path $Result.File -Leaf
+  if ($Result.Forced) {
+    $tray.ShowBalloonTip(5000, 'Recording force-stopped',
+      "$name - $($Result.SizeKB) KB. scrcpy ignored the close request, so the file may not play.", 'Warning')
+  } else {
+    $tray.ShowBalloonTip(3000, 'Recording saved', "$name - $($Result.Seconds)s, $($Result.SizeKB) KB", 'Info')
+  }
 }
 
 # Pull a frame with `exec-out screencap -p`. exec-out (not `shell`) is required:
@@ -378,11 +469,17 @@ function Rebuild-Menu {
       Announce-Screenshot $res
       if ($res.Saved) { Start-Process $res.File }
     } | Out-Null
-    Add-MenuItem 'Record screen' {
-      $f = Start-Record $script:soloSerial
-      if ($f) { $tray.ShowBalloonTip(2500, 'Recording', 'Close the scrcpy window to stop', 'Info') }
-      else { $tray.ShowBalloonTip(3000, 'Failed', 'Could not start recording', 'Error') }
-    } | Out-Null
+    # Recording is a toggle: the same slot starts and stops it, so one click each way.
+    if (Test-Recording) {
+      $elapsed = [math]::Round(((Get-Date) - $script:rec.StartedAt).TotalSeconds)
+      Add-MenuItem ("Stop recording  ({0}s)" -f $elapsed) { Announce-Record (Stop-Record) } -Bold | Out-Null
+    } else {
+      Add-MenuItem 'Record screen' {
+        $f = Start-Record $script:soloSerial
+        if ($f) { $tray.ShowBalloonTip(2500, 'Recording', 'Click the tray icon menu again to stop', 'Info') }
+        else { $tray.ShowBalloonTip(3000, 'Failed', 'Could not start recording', 'Error') }
+      } | Out-Null
+    }
   }
   elseif ($usable.Count -gt 1) {
     # More than one usable device: every action needs an explicit target.
@@ -496,6 +593,15 @@ $tray.add_MouseClick({
       Refresh-State
     }
   }
+})
+
+# Rebuild on open, not just on device-state change. Refresh-State deliberately
+# early-returns when nothing about the DEVICES changed, but the menu also reflects
+# things it does not watch - recording running or not, and the elapsed counter. Without
+# this the "Stop recording" entry would never appear. One adb call per menu open is
+# cheap and buys a menu that is never stale.
+$menu.add_Opening({
+  try { Rebuild-Menu (Get-DeviceSnapshot) } catch { }
 })
 
 $timer = New-Object System.Windows.Forms.Timer

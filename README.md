@@ -101,14 +101,23 @@ write fails. The launcher pins 5.1 deliberately — this is not an oversight.
 
 Being straight about this, because "works on my machine" is not a test matrix.
 
-**Verified:** the script parses and runs under PowerShell 5.1; the icon stays hidden with
-no device attached; the single-instance mutex rejects a second launch; every scrcpy flag
-used (`-s`, `--stay-awake`, `--window-title`, `--record`) exists in scrcpy 4.1; the
-scrcpy/adb discovery finds a real install.
+**Verified, no device attached:** the script parses and runs under Windows PowerShell 5.1;
+the tray icon stays hidden while nothing is connected; the single-instance mutex rejects a
+second launch (exit 0, one process); the scrcpy/adb discovery finds a real install; every
+scrcpy flag used (`-s`, `--stay-awake`, `--window-title`, `--record`) still exists in
+scrcpy 4.1; `install.ps1` creates the Startup shortcut and starts the tray.
 
-**Not yet verified:** the device-attached paths — mirroring, screenshot capture, the
-clipboard write, recording, multi-device selection, and unplugging mid-session. They are
-written and reviewed but have not been exercised against a physical phone in CI.
+**Verified against a physical phone** (Samsung SM-S938B, Windows 11, scrcpy 4.1,
+adb 37.0.0): device parsed correctly from `adb devices -l` as state `device`;
+`adb exec-out screencap -p` returned a valid PNG in 0.57 s (193 KB, 1080×2340 — full
+device resolution, no window chrome); the file landed in the OneDrive-redirected Pictures
+folder as intended; the clipboard write succeeded **and reading the clipboard back
+returned the image at 1080×2340**, which is the check that makes the "copied" balloon
+truthful rather than hopeful.
+
+**Still not verified:** recording, multi-device selection, unplugging mid-session, and the
+`unauthorized` / `authorizing` / `no permissions` states — those are written and reviewed,
+and the state machine is exercised, but they have not been reproduced on real hardware.
 
 Bug reports with your Windows version, scrcpy version and phone model are welcome.
 

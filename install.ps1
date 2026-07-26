@@ -1,4 +1,4 @@
-# scrcpy-tray installer.
+﻿# scrcpy-tray installer.
 #
 # Creates a Startup shortcut so the tray comes back after a reboot, then launches it.
 # Deliberately does NOT need administrator: everything it touches is per-user.
@@ -46,7 +46,7 @@ if ($Uninstall) {
 Write-Host 'Installing scrcpy-tray...' -ForegroundColor Cyan
 
 foreach ($f in @($vbs, $ps1)) {
-  if (-not (Test-Path -LiteralPath $f)) { throw "Missing file: $f — run this from inside the cloned repo." }
+  if (-not (Test-Path -LiteralPath $f)) { throw "Missing file: $f - run this from inside the cloned repo." }
 }
 
 # Fail early with a useful message rather than letting the tray pop an error box at boot.
@@ -78,7 +78,7 @@ if ($scrcpy) {
   Write-Warning '  scrcpy.exe not found.'
   Write-Warning '  Install it first:  winget install Genymobile.scrcpy'
   Write-Warning '  Or point SCRCPY_HOME at your install:  setx SCRCPY_HOME "C:\path\to\scrcpy"'
-  Write-Warning '  Continuing anyway — the tray will tell you the same thing when it starts.'
+  Write-Warning '  Continuing anyway - the tray will tell you the same thing when it starts.'
 }
 
 Stop-Tray | Out-Null
