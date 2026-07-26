@@ -269,27 +269,16 @@ function Start-Scrcpy {
   return [System.Diagnostics.Process]::Start($psi)
 }
 
-# The control bar rides on top of the mirror window: Screenshot | Record | Info | Quit.
-# It is a separate process on purpose - if it ever wedges, the mirror is untouched, and
-# it exits by itself once the mirror window is gone. Windows PowerShell 5.1 again, for
-# the same STA/clipboard reason as the tray.
-function Start-Bar {
-  param([string]$Serial, [string]$LogFile)
-  $barScript = Join-Path $PSScriptRoot 'scrcpy-bar.ps1'
-  if (-not (Test-Path -LiteralPath $barScript)) { return }   # bar is optional
-  try {
-    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', "`"$barScript`"",
-           '-WindowTitle', 'Phone')
-    if ($Serial)  { $a += @('-Serial', $Serial) }
-    if ($LogFile) { $a += @('-LogFile', "`"$LogFile`"") }
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName        = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $psi.Arguments       = ($a -join ' ')
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow  = $true
-    $null = [System.Diagnostics.Process]::Start($psi)
-  } catch { }   # the mirror still works without the bar
-}
+# Path of the log for the most recent mirror session, so the menu can show what scrcpy
+# printed. A floating toolbar over the mirror window was built and then removed: docked
+# above the window it covered scrcpy's own title bar (minimise and close with it), and
+# docked under the title bar - the correct place, where every application puts a toolbar
+# - it covered the top of the picture, because that space belongs to scrcpy's client
+# area. Trying to make room by disabling the aspect-ratio lock and growing the window
+# did not help either: measured by sampling pixels, scrcpy stretches to fill rather than
+# letterboxing, so there was no black band to hide in. A separate window stuck to
+# another application's window never stopped reading as a sticker, so the menu stayed.
+$script:lastLog = $null
 
 function Start-Mirror {
   param([string]$Serial)
@@ -299,9 +288,31 @@ function Start-Mirror {
   try {
     $p = Start-Scrcpy $sargs $log
     if ($null -eq $p) { return $false }
-    Start-Bar $Serial $log
+    $script:lastLog = $log
     return $true
   } catch { return $false }
+}
+
+# scrcpy prints the device it picked, the renderer and the texture size, and hiding its
+# console throws all of that away. It is captured at launch instead, and this puts it
+# back within reach: the real output, then a prompt in the scrcpy folder for anything
+# this tool does not cover.
+function Show-ScrcpyLog {
+  if (-not $script:lastLog -or -not (Test-Path -LiteralPath $script:lastLog)) {
+    $tray.ShowBalloonTip(3000, 'No log yet', 'Start mirroring first', 'Info'); return
+  }
+  try {
+    $err = "$($script:lastLog).err"
+    $cmd = "Set-Location -LiteralPath '$TOOL'; " +
+           "Write-Host '--- scrcpy output for this session ---' -ForegroundColor Cyan; " +
+           "Get-Content -LiteralPath '$($script:lastLog)'; " +
+           "if (Test-Path -LiteralPath '$err') { Get-Content -LiteralPath '$err' }; " +
+           "Write-Host ''; Write-Host '--- scrcpy folder; run it with any flags ---' -ForegroundColor DarkGray"
+    Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') `
+      -ArgumentList '-NoExit', '-NoProfile', '-Command', $cmd -WorkingDirectory $TOOL
+  } catch {
+    $tray.ShowBalloonTip(3000, 'Failed', 'Could not open the terminal', 'Error')
+  }
 }
 
 # ─── recording ────────────────────────────────────────────────────────────────
@@ -554,6 +565,7 @@ function Rebuild-Menu {
     if (Ensure-ShotDir) { Start-Process $SHOTDIR }
     else { $tray.ShowBalloonTip(3000, 'Failed', 'Could not create the folder', 'Error') }
   } | Out-Null
+  Add-MenuItem 'Show scrcpy log / terminal' { Show-ScrcpyLog } | Out-Null
   Add-MenuItem 'Restart adb' {
     $a = Invoke-Captured $ADB @('kill-server')
     $b = Invoke-Captured $ADB @('start-server')
