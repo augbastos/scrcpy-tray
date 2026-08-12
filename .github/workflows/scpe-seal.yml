@@ -23,4 +23,4 @@ jobs:
       pull-requests: write
       actions: read
       contents: read
-    uses: augbastos/.github/.github/workflows/scpe-seal-reusable.yml@main
+    uses: augbastos/.github/.github/workflows/scpe-seal-reusable.yml@ci/scpe-reusable
