@@ -1,14 +1,53 @@
-# scrcpy-tray
+# scrcpy-tray — your Android phone in the Windows tray, the moment you plug it in
 
-Your Android phone appears in the Windows tray the moment you plug it in. Click the
-icon to mirror the screen. Right-click to grab a screenshot straight to your clipboard.
+[![scpe](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe.yml/badge.svg)](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe.yml)
+[![scpe-seal](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml/badge.svg)](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](#requirements)
+[![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#why-powershell-51-and-not-7)
+[![requires scrcpy](https://img.shields.io/badge/requires-scrcpy-000000?logo=android&logoColor=white)](https://github.com/Genymobile/scrcpy)
 
-No device connected, no icon — the tray stays empty until there is actually something
-to click.
+**Click the tray icon to mirror the screen with scrcpy; right-click for a full-resolution screenshot straight to the clipboard.**
+
+Your Android phone appears in the Windows tray the moment you plug it in — no device
+connected, no icon, so the tray stays empty until there is actually something to click.
 
 > Not an official Genymobile project, and not affiliated with it. This is a small
 > third-party companion that drives [scrcpy](https://github.com/Genymobile/scrcpy)
 > and `adb` from the outside.
+
+## How it works
+
+```mermaid
+flowchart TD
+    Start(["Launch scrcpy-tray.vbs"]) --> Mutex{"Single-instance<br/>mutex free?"}
+    Mutex -->|no| ExitQuiet["Exit silently -<br/>another instance is already running"]
+    Mutex -->|yes| Locate["Locate scrcpy.exe + adb.exe<br/>SCRCPY_HOME -> own folder -> PATH -> common install dirs"]
+    Locate --> Found{"Both found?"}
+    Found -->|no| ErrorBox["Error dialog names the missing exe<br/>and how to fix it, then exits"]
+    Found -->|yes| Poll["Watch device state via 'adb devices -l'<br/>WM_DEVICECHANGE fast path + 15s poll backstop"]
+
+    Poll --> AdbOk{"adb responded?"}
+    AdbOk -->|no| AttnAdb["Tray icon visible:<br/>'adb did not respond'"]
+    AdbOk -->|yes| DevState{"Device state"}
+
+    DevState -->|no device| Hidden["Tray icon hidden -<br/>by design, nothing to click"]
+    DevState -->|"device"| Usable["Tray icon appears,<br/>balloon: Phone connected"]
+    DevState -->|"unauthorized / authorizing /<br/>offline / no permissions"| AttnDev["Tray icon visible with<br/>a state-specific hint"]
+
+    Usable --> Mirror["Mirror screen -<br/>scrcpy -s SERIAL --stay-awake"]
+    Usable --> Shot["Screenshot now -<br/>adb exec-out screencap -p"]
+    Usable --> Rec["Record screen (toggle)"]
+
+    Shot --> Verify{"PNG magic bytes<br/>and size look right?"}
+    Verify -->|no| ShotFail["Balloon: screenshot failed,<br/>with the reason"]
+    Verify -->|yes| ShotOk["Saved to Pictures\Phone<br/>+ copied to the clipboard"]
+
+    Rec --> Close["Stop: WM_CLOSE first -<br/>same as clicking the window's X"]
+    Close --> Graceful{"Exits within 8s?"}
+    Graceful -->|yes| RecOk["MP4 finalised - moov atom written, file plays"]
+    Graceful -->|no| RecForce["Force-killed -<br/>balloon warns the file may not play"]
+```
 
 ## Why this exists
 
