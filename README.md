@@ -4,7 +4,7 @@
 [![scpe-seal](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml/badge.svg)](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](#requirements)
-[![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#why-powershell-51-and-not-7)
+[![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![requires scrcpy](https://img.shields.io/badge/requires-scrcpy-000000?logo=android&logoColor=white)](https://github.com/Genymobile/scrcpy)
 
 **Click the tray icon to mirror the screen with scrcpy; right-click for a full-resolution screenshot straight to the clipboard.**
@@ -16,58 +16,18 @@ connected, no icon, so the tray stays empty until there is actually something to
 > third-party companion that drives [scrcpy](https://github.com/Genymobile/scrcpy)
 > and `adb` from the outside.
 
-## How it works
-
-```mermaid
-flowchart TD
-    Start(["Launch scrcpy-tray.vbs"]) --> Mutex{"Single-instance<br/>mutex free?"}
-    Mutex -->|no| ExitQuiet["Exit silently -<br/>another instance is already running"]
-    Mutex -->|yes| Locate["Locate scrcpy.exe + adb.exe<br/>SCRCPY_HOME -> own folder -> PATH -> common install dirs"]
-    Locate --> Found{"Both found?"}
-    Found -->|no| ErrorBox["Error dialog names the missing exe<br/>and how to fix it, then exits"]
-    Found -->|yes| Poll["Watch device state via 'adb devices -l'<br/>WM_DEVICECHANGE fast path + 15s poll backstop"]
-
-    Poll --> AdbOk{"adb responded?"}
-    AdbOk -->|no| AttnAdb["Tray icon visible:<br/>'adb did not respond'"]
-    AdbOk -->|yes| DevState{"Device state"}
-
-    DevState -->|no device| Hidden["Tray icon hidden -<br/>by design, nothing to click"]
-    DevState -->|"device"| Usable["Tray icon appears,<br/>balloon: Phone connected"]
-    DevState -->|"unauthorized / authorizing /<br/>offline / no permissions"| AttnDev["Tray icon visible with<br/>a state-specific hint"]
-
-    Usable --> Mirror["Mirror screen -<br/>scrcpy -s SERIAL --stay-awake"]
-    Usable --> Shot["Screenshot now -<br/>adb exec-out screencap -p"]
-    Usable --> Rec["Record screen (toggle)"]
-
-    Shot --> Verify{"PNG magic bytes<br/>and size look right?"}
-    Verify -->|no| ShotFail["Balloon: screenshot failed,<br/>with the reason"]
-    Verify -->|yes| ShotOk["Saved to Pictures\Phone<br/>+ copied to the clipboard"]
-
-    Rec --> Close["Stop: WM_CLOSE first -<br/>same as clicking the window's X"]
-    Close --> Graceful{"Exits within 8s?"}
-    Graceful -->|yes| RecOk["MP4 finalised - moov atom written, file plays"]
-    Graceful -->|no| RecForce["Force-killed -<br/>balloon warns the file may not play"]
-```
-
 ## Why this exists
 
-scrcpy is excellent, and it is deliberately a one-shot command-line tool: you run it,
-it mirrors, it exits. Two things sit just outside that scope:
+scrcpy is a fast, one-shot mirroring tool: you run it, it mirrors, it exits. Two things
+sit just outside that scope — launching it automatically when a phone connects, and
+taking a single screenshot (scrcpy has no capture flag; mirroring the window and
+screenshotting that costs resolution and picks up window chrome). scrcpy-tray covers
+both natively on Windows: it watches for the device and pulls screenshots straight off
+the phone with `adb exec-out screencap -p` — full device resolution, no window in the
+way, straight onto the clipboard.
 
-- **Launching it when a device shows up.** scrcpy's author solved this himself with
-  [autoadb](https://github.com/rom1v/autoadb) — a separate Rust tool that runs a command
-  whenever a device connects (`autoadb scrcpy -s {}`). Its last release was in May 2022,
-  and its Windows binaries were published marked "untested" by the author.
-- **Taking a screenshot.** scrcpy has no single-frame capture option at all. The usual
-  answer is to mirror the screen and then screenshot the mirror window, which costs you
-  resolution and picks up the window chrome.
-
-scrcpy-tray covers both, natively on Windows: it watches for the device, and it pulls
-screenshots straight off the phone with `adb exec-out screencap -p` — full device
-resolution, no window in the way, straight onto the clipboard.
-
-If you are on Linux or macOS, use **autoadb** — it is cross-platform and it is by the
-person who actually maintains scrcpy.
+If you are on Linux or macOS, use [autoadb](https://github.com/rom1v/autoadb) instead —
+it is cross-platform and maintained by the author of scrcpy itself.
 
 ## What it does
 
@@ -78,15 +38,13 @@ person who actually maintains scrcpy.
 | **Left-click** | Mirror the screen via scrcpy |
 | **Screenshot now** | Full-resolution PNG off the device → saved *and* on the clipboard |
 | **Record screen** | A toggle: the same menu entry starts it and stops it, showing elapsed seconds while running |
-| **Show scrcpy log** | The output scrcpy would have printed to a console — device picked, renderer, texture size — plus a prompt in the scrcpy folder |
+| **Show scrcpy log** | The output scrcpy would have printed to a console — device picked, renderer, texture size |
 | **Explains problems** | `unauthorized`, `offline`, `authorizing` and "adb didn't answer" each get their own message instead of silently looking like "no phone" |
 | **One instance** | Named mutex, so the startup shortcut plus a manual launch can't give you two icons |
 
 Stopping a recording sends `WM_CLOSE`, the same thing clicking the window's X does, and
-only force-kills after that is ignored for 8 seconds. This matters more than it sounds:
-scrcpy writes the MP4 `moov` atom while shutting down, so a killed recording produces a
-file no player will open. If it ever does have to force-kill, it says the file may not
-play rather than claiming success.
+only force-kills after that is ignored for 8 seconds — scrcpy writes the MP4 `moov` atom
+while shutting down, so a killed recording produces a file no player will open.
 
 Screenshots and recordings go to `<Pictures>\Phone\`, resolved through the real shell
 folder — so if your Pictures is OneDrive-redirected, they land where you actually look
@@ -95,7 +53,7 @@ and get backed up with everything else.
 ## Requirements
 
 - Windows 10 or 11
-- Windows PowerShell 5.1 (ships with Windows — **not** PowerShell 7, see below)
+- Windows PowerShell 5.1 (ships with Windows; PowerShell 7 is not supported)
 - [scrcpy](https://github.com/Genymobile/scrcpy) and `adb`, installed separately
 
 **Nothing is bundled.** scrcpy and adb are separate projects with their own licences and
@@ -137,55 +95,15 @@ against; picking a different adb off your `PATH` (an Android SDK platform-tools,
 what produces `adb server version doesn't match this client` — the first entry in
 scrcpy's own FAQ.
 
-## Why PowerShell 5.1 and not 7
+## How it works
 
-Windows PowerShell 5.1 defaults to a single-threaded apartment (STA). WinForms and
-`Clipboard.SetImage` both require it. PowerShell 7 defaults to MTA and the clipboard
-write fails. The launcher pins 5.1 deliberately — this is not an oversight.
-
-## What is verified, and what is not
-
-Being straight about this, because "works on my machine" is not a test matrix.
-
-**Verified, no device attached:** the script parses and runs under Windows PowerShell 5.1;
-the tray icon stays hidden while nothing is connected; the single-instance mutex rejects a
-second launch (exit 0, one process); the scrcpy/adb discovery finds a real install; every
-scrcpy flag used (`-s`, `--stay-awake`, `--window-title`, `--record`) still exists in
-scrcpy 4.1; `install.ps1` creates the Startup shortcut and starts the tray.
-
-**Verified against a physical phone** (Samsung SM-S938B, Windows 11, scrcpy 4.1,
-adb 37.0.0): device parsed correctly from `adb devices -l` as state `device`;
-`adb exec-out screencap -p` returned a valid PNG in 0.57 s (193 KB, 1080×2340 — full
-device resolution, no window chrome); the file landed in the OneDrive-redirected Pictures
-folder as intended; the clipboard write succeeded **and reading the clipboard back
-returned the image at 1080×2340**, which is the check that makes the "copied" balloon
-truthful rather than hopeful.
-
-Recording was verified on the same phone: `WM_CLOSE` alone exits scrcpy 4.1 with code 0,
-and the resulting MP4 contains its `moov` atom, so it opens. The corrupt-file case was
-verified too, by deliberately killing a recording instead — no `moov`, unplayable. That
-is why the graceful path exists.
-
-**Still not verified:** multi-device selection, unplugging mid-session, and the
-`unauthorized` / `authorizing` / `no permissions` states — those are written and reviewed,
-and the state machine is exercised, but they have not been reproduced on real hardware.
-
-Bug reports with your Windows version, scrcpy version and phone model are welcome.
-
-## Known limitations
-
-- Windows only. The tray, the device-change hook and the clipboard are all Win32.
-- The fast path is `WM_DEVICECHANGE`; a 15-second poll is the backstop. Worst case, a
-  device takes up to 15 seconds to appear.
-- Wireless (`adb connect`) targets stay listed as `offline` until `adb disconnect`. They
-  are shown with that state rather than hidden, but they cannot be mirrored while offline.
-- The controls live in the tray menu, not on the mirror window. A floating toolbar was
-  built and removed: above the window it covered scrcpy's own title bar, minimise and
-  close included; below the title bar — where a toolbar belongs — it covered the top of
-  the picture, because that space is scrcpy's client area. Disabling the aspect-ratio
-  lock to make room did not help either; measured by sampling pixels, scrcpy stretches
-  to fill rather than letterboxing, so there is no band to sit in. A window you do not
-  own has no room in it for your controls.
+```mermaid
+flowchart LR
+    A["Plug in an Android device"] --> B["Tray icon appears"]
+    B --> C["Left-click: mirror the screen"]
+    B --> D["Menu: screenshot to clipboard"]
+    B --> E["Menu: start / stop recording"]
+```
 
 ## Prior art
 
