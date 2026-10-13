@@ -1,7 +1,5 @@
 # scrcpy-tray — your Android phone in the Windows tray, the moment you plug it in
 
-[![scpe](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe.yml/badge.svg)](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe.yml)
-[![scpe-seal](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml/badge.svg)](https://github.com/augbastos/scrcpy-tray/actions/workflows/scpe-seal.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](#requirements)
 [![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
