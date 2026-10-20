@@ -73,6 +73,11 @@ cd scrcpy-tray
 `install.ps1` finds your scrcpy, creates a Startup shortcut so the tray comes back after
 a reboot, and launches it. Run `.\install.ps1 -Uninstall` to undo it.
 
+For the first USB connection, enable **USB debugging** in the phone's **Developer
+options**, connect it to the PC, unlock the phone, and accept the USB debugging prompt
+to authorise this computer. If the tray shows `unauthorized`, check the phone for that
+prompt.
+
 To run it once without installing:
 
 ```powershell
@@ -87,6 +92,9 @@ scoop / chocolatey locations. If yours lives somewhere unusual:
 ```powershell
 setx SCRCPY_HOME "C:\path\to\scrcpy"
 ```
+
+`setx` does not update the current shell or a running tray. Open a new PowerShell
+session from Start, then rerun `.\install.ps1` to restart the tray with the new value.
 
 **adb is resolved next to scrcpy first, on purpose.** scrcpy ships the adb it was tested
 against; picking a different adb off your `PATH` (an Android SDK platform-tools, say) is
